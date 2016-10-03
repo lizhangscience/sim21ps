@@ -15,9 +15,10 @@ The script namely SimAGNReal.py is to simualte AGN like point sources in the rad
 - pandans : processing on the point sources catalog in `csv` formation.
 
 ### How to use it?
-    import SimAGNReal
-    SimAGNReal.GenMultiFRs(Rows,Cols,Freq,NumFR)
-    
+````python
+import SimAGNReal
+SimAGNReal.GenMultiFRs(Rows,Cols,Freq,NumFR)
+````    
 ## Author
 - Zhixian MA <`zxma_sjtu(at)qq.com`>
 
