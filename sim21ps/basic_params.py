@@ -80,7 +80,7 @@ class PixelParams():
         angle, and pixels.
         """
         ang = scale / self.dA.value
-        ang_pix = self.ang_res * ang
+        ang_pix = ang /self.ang_res
 
         return ang_pix, ang
 
@@ -90,6 +90,6 @@ class PixelParams():
         real object scale, and pixels.
         """
         scale = ang * self.dA.value
-        scale_pix = self.ang_res * ang
+        scale_pix = ang / self.ang_res
 
         return scale_pix, scale
