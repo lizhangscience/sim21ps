@@ -5,7 +5,6 @@
 
 """
 Basic parameters to be used in point sources simulation.
-
 References
 ------------
 [1] Angular diameter distance,
@@ -13,7 +12,6 @@ References
 [2] FlatLambdaCDM,
      {http://docs.astropy.org/en/stable/api/astropy.cosmology.
      FlatLambdaCDM.html#astropy.cosmology.FlatLambdaCDM}
-
 """
 
 import numpy as np
@@ -25,7 +23,6 @@ from astropy.cosmology import FlatLambdaCDM
 class PixelParams():
     """
     A class to transform cosmology distance to angles or pixels.
-
     Parameters
     ------------
     H0: float
@@ -43,11 +40,9 @@ class PixelParams():
         Redshift
     scale: float
         The real object scale.
-
     Example
     ------------
     >>> PixelParams = PixelParams(img_size=(1024,1024),ang_total=(5,5))
-
     """
     # Hubble constant at z = 0
     H0 = 71.0
