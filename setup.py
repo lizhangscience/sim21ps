@@ -12,11 +12,12 @@ from setuptools import setup, find_packages
 
 import fg21sim as pkg
 
+
 def read(fname):
     """
     read files  (to be rewrited)
     """
-    return open(os.path.join(os.path.dirname(__file__),fname)).read()
+    return open(os.path.join(os.path.dirname(__file__), fname)).read()
 
 setup(
     name=pkg.__pkgname__,
@@ -39,9 +40,9 @@ setup(
         "Programming Language :: Python :: 3.5",
         "Topic :: Scientific/Engineering :: Astronomy",
     ],
-    packages=find_packages(exclude=["docs","tests"]),
+    packages=find_packages(exclude=["docs", "tests"]),
     scripts=[
-         "bin/simAGN",
+        "bin/simAGN",
     ],
     install_requires=[
         "numpy",
