@@ -25,6 +25,7 @@ References
 """
 # Import packages or modules
 import numpy as np
+import time
 from pandas import DataFrame
 # Custom module
 import basic_params
@@ -79,6 +80,8 @@ class PointSource:
     dA: float
         Angular diameter distance, which is calculated according to the cosmology 
         constants. In this work, it is calculated by module basic_params
+    core_x,core_y: float
+        Core coordinates of the point source, which obey to uniform distribution.
     Lumo: float
         Brightness temperature, [mK] ? 
     
@@ -90,19 +93,25 @@ class PointSource:
         
     """
     # Init
+    img_size = 0
     z = 0
     dA = 0
+    core_x = 0
+    core_y = 0
     Columns = []
     nCols = 0
     
-    def __init__(self):
+    def __init__(self,img_size = 512):
+        # Image size
+        self.img_size = img_size
         # Redshift
         self.z = np.random.uniform(0,20)
         # angular diameter distance
         Param = basic_params.PixelParams(self.z)
         self.dA = Param.dA
-        self.Columns = ['z','dA']
-        self.nCols = 2
+        # PS_list information
+        self.Columns = ['z','dA (Mpc)','Core_x (pix)','Core_y (pix)']
+        self.nCols = 4
         
     def gen_sgl_ps(self):
         """
@@ -114,7 +123,11 @@ class PointSource:
         # angular diameter distance
         Param = basic_params.PixelParams(self.z)
         self.dA = Param.dA
-        PS_list = np.array([self.z,self.dA.value])
+        # Position
+        self.core_x = np.random.uniform(self.img_size-1) + 1
+        self.core_y = np.random.uniform(self.img_size-1) + 1
+        
+        PS_list = np.array([self.z,self.dA.value,self.core_x,self.core_y])
         return PS_list
     
     def save_as_csv(self,NumPS = 100):
@@ -129,6 +142,10 @@ class PointSource:
         # Transform into Dataframe
         PS_frame = DataFrame(PS_Table,columns = self.Columns,index = list(range(NumPS)))
         
+        # Save to csv
+        folder_name = 'PS_tables/'
+        file_name = 'PS_'+ str(NumPS)+'_'+ time.strftime('%Y%m%d_%H%M%S') + '.csv'
+        PS_frame.to_csv(folder_name + file_name)
         return PS_frame
         
 class StarForming(PointSource):
@@ -138,23 +155,27 @@ class StarForming(PointSource):
     # Init
     z = 0
     dA = 0
+    core_x = 0
+    core_y = 0
     scale = 0 
+    Lumo_1400 = 0
     Columns = []
     nCols = 0
      
         
-    def __init__(self):
+    def __init__(self,Lumo_1400 = 1500,img_size = 512):
        PointSource.__init__ (self)
+       self.Lumo_1400 = Lumo_1400
        self.Columns.append('scale')
        self.nCols += 1
        
-    def get_scale(self,Lumo_1400):
-       Temp = 0.22 * np.log10(Lumo_1400) - np.log10(1+self.z) - 3.32
-       self.scale = 10 ** Temp / 1e3
+    def get_scale(self):
+       Temp = 0.22 * np.log10(self.Lumo_1400) - np.log10(1+self.z) - 3.32
+       self.scale = 10 ** Temp
        
        return self.scale
     
-    def gen_sgl_ps(self,Lumo_1400):
+    def gen_sgl_ps(self):
         """
         Generate single point source, and return its data as a list.
         
@@ -164,22 +185,31 @@ class StarForming(PointSource):
         # angular diameter distance
         Param = basic_params.PixelParams(self.z)
         self.dA = Param.dA
-        self.scale = self.get_scale(self,Lumo_1400)
+        self.scale = self.get_scale()
         
-        PS_list = np.array([self.z,self.dA.value,self.scale])
+        # Position
+        self.core_x = np.random.uniform(self.img_size-1) + 1
+        self.core_y = np.random.uniform(self.img_size-1) + 1
+        
+        PS_list = np.array([self.z,self.dA.value,self.core_x,self.core_y,self.scale])
         return PS_list
     
-    def save_as_csv(self,Lumo_1400,NumPS = 100):
+    def save_as_csv(self,NumPS = 100):
         """
         Generae NumPS of point sources and save them into a csv file.
         """
         # Init
         PS_Table = np.zeros((NumPS,self.nCols))
         for x in range(NumPS):
-            PS_Table[x,:] = self.gen_sgl_ps(Lumo_1400)
+            PS_Table[x,:] = self.gen_sgl_ps()
         
         # Transform into Dataframe
         PS_frame = DataFrame(PS_Table,columns = self.Columns,index = list(range(NumPS)))
+        
+        # Save to csv
+        folder_name = 'PS_tables/'
+        file_name = 'SF_' + str(NumPS)+'_'+ time.strftime('%Y%m%d_%H%M%S') + '.csv'
+        PS_frame.to_csv(folder_name + file_name)
         
         return PS_frame
         
@@ -187,13 +217,6 @@ class StarBursting(PointSource):
     """
     Generate star forming point sources, inheritate from PointSource class.
     """
-    # Init
-    z = 0
-    dA = 0
-    scale = 0 
-    Columns = []
-    nCols = 0
-     
         
     def __init__(self):
        PointSource.__init__ (self)
@@ -218,9 +241,13 @@ class StarBursting(PointSource):
         # angular diameter distance
         Param = basic_params.PixelParams(self.z)
         self.dA = Param.dA
-        self.scale = self.get_scale(self)
+        self.scale = self.get_scale()
         
-        PS_list = np.array([self.z,self.dA.value,self.scale])
+        # Position
+        self.core_x = np.random.uniform(self.img_size-1) + 1
+        self.core_y = np.random.uniform(self.img_size-1) + 1
+        
+        PS_list = np.array([self.z,self.dA.value,self.core_x,self.core_y,self.scale])
         return PS_list
     
     def save_as_csv(self,NumPS = 100):
@@ -235,4 +262,132 @@ class StarBursting(PointSource):
         # Transform into Dataframe
         PS_frame = DataFrame(PS_Table,columns = self.Columns,index = list(range(NumPS)))
         
+        # Save to csv
+        folder_name = 'PS_tables/'
+        file_name = 'SB_' + str(NumPS)+'_'+ time.strftime('%Y%m%d_%H%M%S') + '.csv'
+        PS_frame.to_csv(folder_name + file_name)
+        
         return PS_frame
+
+class FRI(PointSource):
+    """
+    Generate Faranoff-Riley I (FRI) AGN
+    
+    Parameters
+    ----------
+    lobe_maj: float
+        The major half axis of the lobe
+    lobe_min: float
+        The minor half axis of the lobe
+    lobe_ang: float
+        The rotation angle of the lobe from LOS
+    lumo_lobe: float
+        The brightness temperature of the lobe
+    lumo_core: float
+        The brightness temperature of the core
+    """
+    # New parameters
+    lobe_maj = 0
+    lobe_min = 0
+    lobe_ang = 0
+    lumo_lobe = 0
+    lumo_core = 0
+    
+    def __init__(self):
+       PointSource.__init__ (self)
+       self.Columns.extend(['lumo_core','lumo_lobe','lobe_maj','lobe_min','lobe_ang'])
+       self.nCols += 5
+    
+    def gen_lobe(self):
+        """
+        According to Wang's work, the linear scale at redshift z obeys to U(0,D0(1+z)^(-1.4))
+        """
+        D0 = 1
+        self.lobe_maj = 0.5 * np.random.uniform(0,D0*(1+self.z)**(-1.4))
+        self.lobe_min = self.lobe_maj * np.random.uniform(0.2,1)
+        self.lobe_ang = np.random.uniform(0,np.pi)
+        lobe = [self.lobe_maj,self.lobe_min,self.lobe_ang]
+        
+        return lobe
+        
+    def gen_lumo(self):
+        self.lumo_core = 0
+        self.lumo_lobe = 0
+        lumo = [self.lumo_core,self.lumo_lobe]
+        
+        return lumo
+    
+    def gen_sgl_ps(self):
+        """
+        Generate single point source, and return its data as a list.
+        
+        """ 
+        # Redshift
+        self.z = np.random.uniform(0,20)
+        # angular diameter distance
+        Param = basic_params.PixelParams(self.z)
+        self.dA = Param.dA
+                
+        # Position
+        self.core_x = np.random.uniform(self.img_size-1) + 1
+        self.core_y = np.random.uniform(self.img_size-1) + 1
+       
+        # lobe
+        lobe = self.gen_lobe()
+        
+        # Brightness temperature
+        lumo = self.gen_lumo()
+        
+        PS_list = [self.z,self.dA.value,self.core_x,self.core_y]
+        PS_list.extend(lumo)
+        PS_list.extend(lobe)
+        
+        PS_list = np.array(PS_list)
+        return PS_list
+    
+    def save_as_csv(self,NumPS = 100):
+        """
+        Generae NumPS of point sources and save them into a csv file.
+        """
+        # Init
+        PS_Table = np.zeros((NumPS,self.nCols))
+        for x in range(NumPS):
+            PS_Table[x,:] = self.gen_sgl_ps()
+        
+        # Transform into Dataframe
+        PS_frame = DataFrame(PS_Table,columns = self.Columns,index = list(range(NumPS)))
+        
+        # Save to csv
+        folder_name = 'PS_tables/'
+        file_name = 'FRI_' + str(NumPS)+'_'+ time.strftime('%Y%m%d_%H%M%S') + '.csv'
+        PS_frame.to_csv(folder_name + file_name)
+        
+        return PS_frame
+
+class FRII(FRI):
+    """
+    Generate Faranoff-Riley I (FRI) AGN, a class inherit from FRI
+    """
+    def __init__(self):
+        FRI.__init__(self)
+        
+    def gen_lumo(self):
+        """
+        For a FRII AGN, the lobe are usually brighter than the core
+        """
+        self.lumo_core = 0
+        self.lumo_lobe = 0
+        lumo = [self.lumo_core,self.lumo_lobe]
+        return lumo
+ 
+    def gen_lobe(self):
+        """
+        According to Wang's work, the linear scale at redshift z obeys to U(0,D0(1+z)^(-1.4))
+        """
+        D0 = 1
+        self.lobe_maj = 0.5 * np.random.uniform(0,D0*(1+self.z)**(-1.4))
+        self.lobe_min = self.lobe_maj * np.random.uniform(0.2,1)
+        self.lobe_ang = np.random.uniform(0,np.pi/3) # Different from FRI
+        lobe = [self.lobe_maj,self.lobe_min,self.lobe_ang]
+
+        return lobe
