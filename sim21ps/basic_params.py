@@ -14,9 +14,8 @@ References
      FlatLambdaCDM.html#astropy.cosmology.FlatLambdaCDM}
 """
 
-import numpy as np
-
 # astropy related modules
+import astropy.units as au    # units for astronomy physics
 from astropy.cosmology import FlatLambdaCDM
 
 
@@ -29,11 +28,8 @@ class PixelParams():
         The hubble constant at z = 0, whose unit is km/s/Mpc
     Om0: float
         The total matter density.
-    img_size: list
-        Number of pixels to the column and row of the simulated sky
-        region, which are [512,512] as default.
     ang_res: float
-        Angular resolution, i.e. degree per pixel.
+        Angular resolution, i.e. degree per pixel. (May be useless)
     ang_total: list
         Total angles of the simulated sky region,whose unit is degree (\deg)
     z : float
@@ -53,38 +49,36 @@ class PixelParams():
     # Cosmology calculator
     cosmo = 0
     # angular diameter distance, [Mpc]
-    dA = 0
+    dA = 0 * au.Mpc
     # angular resolution
-    ang_res = np.zeros(2)
+    ang_res = au.rad * 0
 
-    def __init__(self, z=0, img_size=[512, 512], ang_total=[1, 1]):
+    def __init__(self, z=0):
         self.z = z
         self.cosmo = FlatLambdaCDM(H0=self.H0, Om0=self.Om0)
 
         # Angle per pixel
-        img_size = np.array(img_size, dtype=float)
-        ang_total = np.array(ang_total, dtype=float)
-        self.ang_res = ang_total / img_size * 60  # [arcmin]
+        # self.ang_res = ang_res.to(au.rad)  # [rac]
 
         # angular diameter distance, [Mpc]
         self.dA = self.cosmo.angular_diameter_distance(self.z)
 
-    def get_angle(self, scale=1):
+    def get_angle(self, scale=1*au.Mpc):
         """
         Input real object scale, and output the respect observed
         angle, and pixels.
         """
-        ang = scale / self.dA.value
-        ang_pix = ang /self.ang_res
+        ang = scale / self.dA # [rac]
+        # ang_pix = ang /self.ang_res # [pix]
 
-        return ang_pix, ang
+        return ang
 
-    def get_scale(self, ang=1):
+    def get_scale(self, ang=au.rad * 1):
         """
         Input real observed scale, and output the respect
         real object scale, and pixels.
         """
-        scale = ang * self.dA.value
-        scale_pix = ang / self.ang_res
+        scale = ang * self.dA #[Mpc]
+        #scale_pix = ang / self.ang_res
 
-        return scale_pix, scale
+        return scale
