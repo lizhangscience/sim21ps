@@ -33,6 +33,8 @@ draw_ps: draw the ps on the image map.
 
 # Modules
 import numpy as np
+import astropy.units as au
+import healpy as hp
 # from pandas import DataFrame
 import pandas as pd
 # Cumstom designed modules
@@ -56,7 +58,7 @@ class Flux:
         The type of point source, which is default as 1.
         | ClassType | Code |
         |:---------:|:----:|
-        |    SF		|  1   |
+        |    SF     |  1   |
         |    SB     |  2   |
         |  RQ AGN	|  3   |
         |   FRI     |  4   |
@@ -99,7 +101,6 @@ class Flux:
                 np.log10(self.Freq) * np.log10(self.Freq)
             Spec_core = 10**lgs
             Spec = np.array([Spec_core, Spec_lobe])
-
         elif self.ClassType == 5:
             Spec_lobe = (self.Freq / 151e6)**-0.75 * self.I_151
             Spec_hotspot = (self.Freq / 151e6)**-0.75 * self.I_151
@@ -113,14 +114,14 @@ class Flux:
         return Spec
 
     # calc_Tb
-    def calc_Tb(self, Area):
+    def calc_Tb(self, area):
         # light speed
         c = 2.99792458e8
         # ?
         kb = 1.38e-23
         # flux in Jy
         flux_in_Jy = self.genSpec()
-        Omegab = Area / (3600 * 180 / np.pi) / (3600 * 180 / np.pi)
+        Omegab = area  # [sr]
 
         Sb = flux_in_Jy * 1e-26 / Omegab
         FluxPixel = Sb / 2 / self.Freq / self.Freq * c * c / kb
@@ -176,13 +177,13 @@ def calc_flux(ClassType, Freq, PS_data):
 
     # Iteratively calculate flux
     for i in range(NumPS):
-        PS_area = PS_data['Area'][i]
-        PS_flux_list[i, :] = PS_flux.calc_Tb(PS_area)[i]
+        PS_area = PS_data['Area (sr)'][i]
+        PS_flux_list[i, :] = PS_flux.calc_Tb(PS_area)
 
     return PS_flux_list
 
 
-def draw_rq(ImgMat, PS_data, Freq):
+def draw_rq(nside, PS_data, Freq):
     """
     Designed to draw the radio quiet AGN
 
@@ -198,24 +199,23 @@ def draw_rq(ImgMat, PS_data, Freq):
 
     # Gen flux list
     PS_flux_list = calc_flux(3, Freq, PS_data)
-    # Iteratively draw the ps
-    NumPS = PS_data.shape[0]
-    for i in range(NumPS):
-        Core_x = np.ceil(PS_data['Core_x (pix)'][i]) - 1
-        Core_y = np.ceil(PS_data['Core_y (pix)'][i]) - 1
-        ImgMat[int(Core_y), int(Core_x)] += PS_flux_list[i]
+    # Angle to pix
+    pix = hp.ang2pix(nside, PS_data['Theta (deg)'] /
+                     180, PS_data['Phi (deg)'] / 180)
+    # Gen sparse pix_brightness list
+    pix_brightness = np.column_stack((pix, PS_flux_list))
 
-    return ImgMat
+    return pix_brightness
 
 
-def draw_cir(ImgMat, PS_data, ClassType, Freq):
+def draw_cir(nside, PS_data, ClassType, Freq):
     """
     Designed to draw the circular  star forming  and star bursting PS.
 
     Prameters
     ---------
-    ImgMat: np.ndarray
-        Two dimensional matrix, to describe the image
+    nside: int and dyadic
+        number of sub pixel in a cell of the healpix structure
     PS_data: pandas.core.frame.DataFrame
         Data of the point sources
     ClassType: int
@@ -223,36 +223,50 @@ def draw_cir(ImgMat, PS_data, ClassType, Freq):
     Freq: float
         Frequency
     """
-    Rows, Cols = ImgMat.shape
+    # Init
+    pix = []
+    sb = []
     # Gen flux list
     PS_flux_list = calc_flux(ClassType, Freq, PS_data)
     #  Iteratively draw the ps
     NumPS = PS_data.shape[0]
     for i in range(NumPS):
         # grid
-        PS_radius = np.ceil(PS_data['radius'][i])  # To be fixed
-        Core_x = np.ceil(PS_data['Core_x (pix)'][i]) - 1
-        Core_y = np.ceil(PS_data['Core_y (pix)'][i]) - 1
+        PS_radius = PS_data['radius (rad)'][i]  # radius[rad]
+        theta = PS_data['Theta (deg)'][i] * au.deg   # theta
+        phi = PS_data['Core_y (pix)'][i] * au.deg  # phi
         # Fill with circle
-        x = np.arange(Core_x - PS_radius, Core_x + PS_radius + 1, 1)
-        y = np.arange(Core_y - PS_radius, Core_y + PS_radius + 1, 1)
+        step = PS_radius.value / 10  # Should be fixed
+        # x and y are the differencial rad to the core point at the theta and
+        # phi directions.
+        x = np.arange(-PS_radius, PS_radius + step, step) * au.rad
+        y = np.arange(- PS_radius,  PS_radius + step, step) * au.rad
         for p in range(len(x)):
             for q in range(len(y)):
-                if (x[p] >= 0) and (x[p] <= Cols - 1) and (y[q] >= 0) and (y[q] <= Rows - 1):
-                    if np.sqrt((x[p] - Core_x)**2 + (y[q] - Core_y)**2) <= PS_radius:
-                        ImgMat[int(y[q]), int(x[p])] += PS_flux_list[i]
+                if np.sqrt(x[p].value**2 + y[q].value**2) <= PS_radius:
+                    x_ang = x[p].to(au.deg) + theta
+                    y_ang = y[q].to(au.dge) + phi
+                    pix_tmp = hp.ang2pix(
+                        nside, x_ang.value / 180, y_ang.value / 180)
+                    # Judge the pix
+                    if pix_tmp not in pix:
+                        pix.append(pix_tmp.tolist())
+                        sb.append(PS_flux_list[i].tolist())
+                    else:
+                        sb[pix.index(pix_tmp.tolist())] += PS_flux_list[i].tolist()
+    # gen the pix_brightness matrix
+    pix_brightness = np.column_stack((np.array(pix), np.array(sb)))
 
-    return ImgMat
+    return pix_brightness
 
 
-def draw_lobe(ImgMat, PS_data, ClassType, Freq):
+def draw_lobe(nside, PS_data, ClassType, Freq):
     """
     Designed to draw the elliptical lobes of FRI and FRII
 
     Prameters
     ---------
-    ImgMat: np.ndarray
-        Two dimensional matrix, to describe the image
+    nside: int and dyadic
     PS_data: pandas.core.frame.DataFrame
         Data of the point sources
     ClassType: int
@@ -262,7 +276,8 @@ def draw_lobe(ImgMat, PS_data, ClassType, Freq):
 
     """
     # Init
-    Rows, Cols = ImgMat.shape
+    pix = []
+    sb = []
     NumPS = PS_data.shape[0]
     # Gen flux list
     PS_flux_list = calc_flux(ClassType, Freq, PS_data)
@@ -270,15 +285,17 @@ def draw_lobe(ImgMat, PS_data, ClassType, Freq):
     # Iteratively draw ps
     for i in range(NumPS):
         # Parameters
-        Core_x = np.ceil(PS_data['Core_x (pix)'][i]) - 1
-        Core_y = np.ceil(PS_data['Core_y (pix)'][i]) - 1
-        lobe_maj = np.ceil(PS_data['lobe_maj'][i])
-        lobe_min = np.ceil(PS_data['lobe_min'][i])
-        lobe_ang = PS_data['lobe_ang'][i]
+        theta = PS_data['Theta (deg)'][i] * au.deg
+        phi = PS_data['Phi (deg)'][i] * au.deg
+        lobe_maj = PS_data['lobe_maj (rad)'][i]
+        lobe_min = PS_data['lobe_min (rad)'][i]
+        lobe_ang = PS_data['lobe_ang (deg)'][i] / 180
 
         # Lobe1
-        lobe1_core_x = Core_x + lobe_maj * np.cos(lobe_ang)
-        lobe1_core_y = Core_y + lobe_maj * np.sin(lobe_ang)
+        lobe1_theta = lobe_maj * np.cos(lobe_ang) * au.rad
+        lobe1_theta = theta + lobe1_theta.to(au.deg)
+        lobe1_phi = lobe_maj * np.sin(lobe_ang) * au.rad
+        lobe1_phi = phi + lobe1_phi.to(au.deg)
         # Focuses
         lobe_c = np.sqrt(lobe_maj**2 - lobe_min**2)  # focus distance
         F1_core_x = lobe_c
@@ -286,10 +303,9 @@ def draw_lobe(ImgMat, PS_data, ClassType, Freq):
         F2_core_x = -lobe_c
         F2_core_y = 0
         # draw
-        a = int(np.round(lobe_maj))
-        b = int(np.round(lobe_min))
-        x = np.arange(-a, a + 1, 1)
-        y = np.arange(-b, b + 1, 1)
+        step = lobe_maj / 10
+        x = np.arange(-lobe_maj, lobe_maj + step, step)
+        y = np.arange(-lobe_min, lobe_min + step, step)
         # Ellipse
         for p in range(len(x)):
             for q in range(len(y)):
@@ -298,16 +314,25 @@ def draw_lobe(ImgMat, PS_data, ClassType, Freq):
                 DistFocus2 = np.sqrt(
                     (x[p] - F2_core_x)**2 + (y[q] - F2_core_y)**2)
                 if (DistFocus1 + DistFocus2 <= 2 * lobe_maj):
-                    x_r = x[p] * np.cos(lobe_ang) - y[q] * np.sin(lobe_ang)
-                    y_r = x[p] * np.sin(lobe_ang) + y[q] * np.cos(lobe_ang)
-                    x_r = int(round(x_r + lobe1_core_x))
-                    y_r = int(round(y_r + lobe1_core_y))
+                    # rotation
+                    x_ang = (x[p] * au.rad).to(au.deg)
+                    y_ang = (y[q] * au.rad).to(au.deg)
+                    x_r = x_ang * np.cos(lobe_ang) - y_ang * np.sin(lobe_ang)
+                    y_r = x_ang * np.sin(lobe_ang) + y_ang * np.cos(lobe_ang)
                     # Judge and Fill
-                    if (x_r >= 0) and (x_r <= Cols - 1) and (y_r >= 0) and (y_r <= Rows - 1):
-                        ImgMat[int(y_r), int(x_r)] += PS_flux_list[i][1]
+                    pix_tmp = hp.ang2pix(
+                        nside, (theta + x_r).value / 180, (phi + y_r).value / 180)
+                    if pix_tmp not in pix:
+                        pix.append(pix_tmp.tolist())
+                        sb.append(PS_flux_list[i].tolist())
+                    else:
+                        sb[pix.index(pix_tmp.tolist())] += PS_flux_list[i].tolist()
+
         # Lobe2
-        lobe2_core_x = Core_x + lobe_maj * np.cos(lobe_ang + np.pi)
-        lobe2_core_y = Core_y + lobe_maj * np.sin(lobe_ang + np.pi)
+        lobe2_theta = lobe_maj * np.cos(lobe_ang + np.pi) * au.rad
+        lobe2_theta = theta + lobe2_theta.to(au.deg)
+        lobe2_phi = lobe_maj * np.sin(lobe_ang + np.pi) * au.rad
+        lobe2_phi = phi + lobe2_phi.to(au.deg)
         # Focuses
         lobe_c = np.sqrt(lobe_maj**2 - lobe_min**2)  # focus distance
         F1_core_x = lobe_c
@@ -315,10 +340,9 @@ def draw_lobe(ImgMat, PS_data, ClassType, Freq):
         F2_core_x = -lobe_c
         F2_core_y = 0
         # draw
-        a = int(np.round(lobe_maj))
-        b = int(np.round(lobe_min))
-        x = np.arange(-a, a + 1, 1)
-        y = np.arange(-b, b + 1, 1)
+        step = lobe_maj / 10
+        x = np.arange(-lobe_maj, lobe_maj + step, step)
+        y = np.arange(-lobe_min, lobe_min + step, step)
         # Ellipse
         for p in range(len(x)):
             for q in range(len(y)):
@@ -327,43 +351,92 @@ def draw_lobe(ImgMat, PS_data, ClassType, Freq):
                 DistFocus2 = np.sqrt(
                     (x[p] - F2_core_x)**2 + (y[q] - F2_core_y)**2)
                 if (DistFocus1 + DistFocus2 <= 2 * lobe_maj):
-                    x_r = x[p] * np.cos(lobe_ang + np.pi) - \
-                        y[q] * np.sin(lobe_ang + np.pi)
-                    y_r = x[p] * np.sin(lobe_ang + np.pi) + \
-                        y[q] * np.cos(lobe_ang + np.pi)
-                    x_r = int(round(x_r + lobe2_core_x))
-                    y_r = int(round(y_r + lobe2_core_y))
+                    # rotation
+                    x_ang = (x[p] * au.rad).to(au.deg)
+                    y_ang = (y[q] * au.rad).to(au.deg)
+                    x_r = x_ang * np.cos(lobe_ang + np.pi) - \
+                        y_ang * np.sin(lobe_ang + np.pi)
+                    y_r = x_ang * np.sin(lobe_ang + np.pi) + \
+                        y_ang * np.cos(lobe_ang + np.pi)
                     # Judge and Fill
-                    if (x_r >= 0) and (x_r <= Cols - 1) and (y_r >= 0) and (y_r <= Rows - 1):
-                        ImgMat[int(y_r), int(x_r)] += PS_flux_list[i][1]
-
+                    pix_tmp = hp.ang2pix(
+                        nside, (lobe2_theta + x_r).value / 180, (lobe2_phi + y_r).value / 180)
+                    if pix_tmp not in pix:
+                        pix.append(pix_tmp.tolist())
+                        sb.append(PS_flux_list[i].tolist())
+                    else:
+                        sb[pix.index(pix_tmp.tolist())] += PS_flux_list[i].tolist()
         # Core
-        ImgMat[int(Core_y), int(Core_x)] += PS_flux_list[i][0]
+        pix_tmp = hp.ang2pix(nside, theta.value / 180, phi.value / 180)
+        if pix_tmp not in pix:
+            pix.append(pix_tmp.tolist())
+            sb.append(PS_flux_list[i].tolist())
+        else:
+            sb[pix.index(pix_tmp.tolist())] += PS_flux_list[i].tolist()
+    # gen the pix_brightness matrix
+    pix_brightness = np.column_stack((np.array(pix), np.array(sb)))
 
-    return ImgMat
+    return pix_brightness
 
 
-def draw_ps(ImgMat, PS_data, ClassType, Freq):
+def draw_ps(nside, Freq, FileName, FoldName='PS_tables'):
     """
-    Designed to draw the all point sources
+    Read csv ps list file, and generate the healpix structure vector
+    with the respect frequency.
 
     Prameters
     ---------
-    ImgMat: np.ndarray
-        Two dimensional matrix, to describe the image
-    PS_data: pandas.core.frame.DataFrame
-        Data of the point sources
-    ClassType: int
-        Class type of the point soruces
+    nside: int and dyadic
+        Number of subpixel in a healpix cell
     Freq: float
         Frequency
-
+    FileName: str
+        Name of the ps list catelogue
+    FoldName: str
+        Name of the folder saving ps lists, which is 'PS_tables' as default.
     """
-    if ClassType == 1 or ClassType == 2:
-        ImgMat = draw_cir(ImgMat, PS_data, ClassType, Freq)
-    elif ClassType == 3:
-        ImgMat = draw_rq(ImgMat, PS_data, Freq)
-    else:
-        ImgMat = draw_lobe(ImgMat, PS_data, ClassType, Freq)
 
-    return ImgMat
+    # Init
+    pix_vec = np.zeros(1, 12 * nside**nside)
+    # load csv
+    ClassType, PS_data = read_csv(FileName, FoldName)
+
+    # get sparsed matrix
+    if ClassType == 1 or ClassType == 2:
+        pix_brightness = draw_cir(nside, PS_data, ClassType, Freq)
+    elif ClassType == 3:
+        pix_brightness = draw_rq(nside, PS_data, Freq)
+    else:
+        pix_brightness = draw_lobe(nside, PS_data, ClassType, Freq)
+
+    # sparse to full
+    pix_vec = sparse2full(nside, pix_brightness)
+
+    return pix_vec
+
+
+def sparse2full(nside, sparse_mat):
+    """
+    Transform the sparsed mat to full healpix vector
+
+    parameters
+    ----------
+    nside: int and dyadic
+        Number of subpixel in the cell of healpix
+    sparse_mat: np.ndarray(2,NumPS)
+        The sparsed mat, pix indices are in column1, and
+        brightness in column2
+
+    return
+    ------
+    pix_vec: np.ndarray(1,12*nside^2)
+    """
+    # init
+    pix_vec = np.zeros((12 * nside*nside,))
+    # Judge the legality of sparse_mat
+    if sparse_mat.shape[1] != 2:
+        print("The structure of sparsed matrix is illegal!")
+        return pix_vec
+    else:
+        pix_vec[sparse_mat[:, 0].tolist()] += sparse_mat[:, 1].tolist()
+        return pix_vec
