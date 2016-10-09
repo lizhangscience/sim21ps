@@ -32,12 +32,15 @@ draw_ps: draw the ps on the image map.
 """
 
 # Modules
+import sys
+import getopt
 import numpy as np
 import astropy.units as au
 import healpy as hp
 # from pandas import DataFrame
 import pandas as pd
 # Cumstom designed modules
+from fg21sim.utils import write_fits_healpix
 # import basic_params
 # import psCatelogue
 
@@ -379,20 +382,17 @@ def draw_ps(nside, Freq, FileName, FoldName='PS_tables'):
     """
 
     # Init
-    pix_vec = np.zeros(1, 12 * nside**nside)
+    pix_vec = np.zeros((12 * nside**2,))
     # load csv
     ClassType, PS_data = read_csv(FileName, FoldName)
 
     # get sparsed matrix
     if ClassType == 1 or ClassType == 2:
-        pix_brightness = draw_cir(nside, PS_data, ClassType, Freq)
+        pix_vec = draw_cir(nside, PS_data, ClassType, Freq)
     elif ClassType == 3:
-        pix_brightness = draw_rq(nside, PS_data, Freq)
+        pix_vec = draw_rq(nside, PS_data, Freq)
     else:
-        pix_brightness = draw_lobe(nside, PS_data, ClassType, Freq)
-
-    # sparse to full
-    pix_vec = sparse2full(nside, pix_brightness)
+        pix_vec = draw_lobe(nside, PS_data, ClassType, Freq)
 
     return pix_vec
 
@@ -422,3 +422,65 @@ def sparse2full(nside, sparse_mat):
     else:
         pix_vec[sparse_mat[:, 0].tolist()] += sparse_mat[:, 1].tolist()
         return pix_vec
+
+def main(argv):
+    """
+    A main function for use this module at the command window
+
+    parameters
+    ---------
+    argv: a string array
+    argv[0] module name
+    argv[1:] some parameters and filenames
+
+    example
+    -------
+    psDraw_new -i PS_tables/SF_100_20161009_205700.csv -o PS_tables/SF_nside_512.fits
+    -n 512 -f 150
+    """
+    try:
+        opts,args = getopt.getopt(argv,"hi:o:n:f:",["infile=","outfile=","nside","freq"])
+    except getopt.GetoptError:
+        print("pyDraw_new -i <PS name (csv)> -o <Outpur fits name> -n <nside> -f <frequency>")
+        sys.exit(2)
+    for opt,arg in opts:
+        if opt == '-h':
+            print("pyDraw_new -i <PS name (csv)> -o <Outpur fits name> -n <nside> -f <frequency>")
+        elif opt in ("-i","--infile"):
+            ps_name = arg
+        elif opt in ("-o","--outfile"):
+            fits_name = arg
+        elif opt in ("-n","--nside"):
+            nside = int(arg)
+        elif opt in ("-f","--freq"):
+            freq = float(arg)
+    # Split to get folder name and file name
+    Str_split = ps_name.split('/')
+    if len(Str_split) == 1:
+        FileName = Str_split
+        FoldName = "./"
+    else:
+        FileName = Str_split[-1]
+        FoldName = ''
+        for i in range(len(Str_split)-1):
+            FoldName = FoldName + Str_split[i]
+    # print
+    print("FoldName: ",FoldName)
+    print("FileName: ",FileName)
+    print("nside: ",nside)
+    print("frequency: ",freq)
+    # get pix_vec
+    if 'nside' not in dir():
+        nside = 512
+    if 'freq' not in dir():
+        freq = 150
+    pix_vec = draw_ps(nside,freq,FileName,FoldName)
+    # save
+    if 'fits_name' in dir():
+        write_fits_healpix(fits_name,pix_vec)
+    else:
+        fits_name = FoldName + '/PS_nside_' + str(nside) +'_'+str(freq)+ '.fits'
+        write_fits_healpix(fits_name,pix_vec)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
