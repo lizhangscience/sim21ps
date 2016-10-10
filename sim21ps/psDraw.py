@@ -32,12 +32,15 @@ draw_ps: draw the ps on the image map.
 """
 
 # Modules
+import sys
+import getopt
 import numpy as np
 import astropy.units as au
 import healpy as hp
 # from pandas import DataFrame
 import pandas as pd
 # Cumstom designed modules
+from fg21sim.utils import write_fits_healpix
 # import basic_params
 # import psCatelogue
 
@@ -172,13 +175,16 @@ def calc_flux(ClassType, Freq, PS_data):
     NumPS = PS_data.shape[0]
     if ClassType <= 3:
         PS_flux_list = np.zeros((NumPS,))
+        # Iteratively calculate flux
+        for i in range(NumPS):
+            PS_area = PS_data['Area (sr)'][i]
+            PS_flux_list[i] = PS_flux.calc_Tb(PS_area)
     else:
         PS_flux_list = np.zeros((NumPS, 2))
-
-    # Iteratively calculate flux
-    for i in range(NumPS):
-        PS_area = PS_data['Area (sr)'][i]
-        PS_flux_list[i, :] = PS_flux.calc_Tb(PS_area)
+# Iteratively calculate flux
+        for i in range(NumPS):
+            PS_area = PS_data['Area (sr)'][i]
+            PS_flux_list[i, :] = PS_flux.calc_Tb(PS_area)
 
     return PS_flux_list
 
@@ -196,16 +202,17 @@ def draw_rq(nside, PS_data, Freq):
     Freq: float
         Frequency
     """
-
+    # Init
+    pix_vec = np.zeros((12*nside**2,))
     # Gen flux list
     PS_flux_list = calc_flux(3, Freq, PS_data)
     # Angle to pix
     pix = hp.ang2pix(nside, PS_data['Theta (deg)'] /
                      180, PS_data['Phi (deg)'] / 180)
-    # Gen sparse pix_brightness list
-    pix_brightness = np.column_stack((pix, PS_flux_list))
+    # Gen pix_vec
+    pix_vec[pix] += PS_flux_list
 
-    return pix_brightness
+    return pix_vec
 
 
 def draw_cir(nside, PS_data, ClassType, Freq):
@@ -224,8 +231,7 @@ def draw_cir(nside, PS_data, ClassType, Freq):
         Frequency
     """
     # Init
-    pix = []
-    sb = []
+    pix_vec = np.zeros((12*nside**2,))
     # Gen flux list
     PS_flux_list = calc_flux(ClassType, Freq, PS_data)
     #  Iteratively draw the ps
@@ -234,9 +240,9 @@ def draw_cir(nside, PS_data, ClassType, Freq):
         # grid
         PS_radius = PS_data['radius (rad)'][i]  # radius[rad]
         theta = PS_data['Theta (deg)'][i] * au.deg   # theta
-        phi = PS_data['Core_y (pix)'][i] * au.deg  # phi
+        phi = PS_data['Phi (deg)'][i] * au.deg  # phi
         # Fill with circle
-        step = PS_radius.value / 10  # Should be fixed
+        step = PS_radius / 10  # Should be fixed
         # x and y are the differencial rad to the core point at the theta and
         # phi directions.
         x = np.arange(-PS_radius, PS_radius + step, step) * au.rad
@@ -245,19 +251,12 @@ def draw_cir(nside, PS_data, ClassType, Freq):
             for q in range(len(y)):
                 if np.sqrt(x[p].value**2 + y[q].value**2) <= PS_radius:
                     x_ang = x[p].to(au.deg) + theta
-                    y_ang = y[q].to(au.dge) + phi
+                    y_ang = y[q].to(au.deg) + phi
                     pix_tmp = hp.ang2pix(
                         nside, x_ang.value / 180, y_ang.value / 180)
-                    # Judge the pix
-                    if pix_tmp not in pix:
-                        pix.append(pix_tmp.tolist())
-                        sb.append(PS_flux_list[i].tolist())
-                    else:
-                        sb[pix.index(pix_tmp.tolist())] += PS_flux_list[i].tolist()
-    # gen the pix_brightness matrix
-    pix_brightness = np.column_stack((np.array(pix), np.array(sb)))
+                    pix_vec[pix_tmp] += PS_flux_list[i]
 
-    return pix_brightness
+    return pix_vec
 
 
 def draw_lobe(nside, PS_data, ClassType, Freq):
@@ -276,12 +275,11 @@ def draw_lobe(nside, PS_data, ClassType, Freq):
 
     """
     # Init
-    pix = []
-    sb = []
+    pix_vec = np.zeros((12*nside**2,))
     NumPS = PS_data.shape[0]
     # Gen flux list
     PS_flux_list = calc_flux(ClassType, Freq, PS_data)
-
+    PS_lobe = PS_flux_list[:,1]
     # Iteratively draw ps
     for i in range(NumPS):
         # Parameters
@@ -322,11 +320,7 @@ def draw_lobe(nside, PS_data, ClassType, Freq):
                     # Judge and Fill
                     pix_tmp = hp.ang2pix(
                         nside, (theta + x_r).value / 180, (phi + y_r).value / 180)
-                    if pix_tmp not in pix:
-                        pix.append(pix_tmp.tolist())
-                        sb.append(PS_flux_list[i].tolist())
-                    else:
-                        sb[pix.index(pix_tmp.tolist())] += PS_flux_list[i].tolist()
+                    pix_vec[pix_tmp] += PS_lobe[i]
 
         # Lobe2
         lobe2_theta = lobe_maj * np.cos(lobe_ang + np.pi) * au.rad
@@ -361,22 +355,13 @@ def draw_lobe(nside, PS_data, ClassType, Freq):
                     # Judge and Fill
                     pix_tmp = hp.ang2pix(
                         nside, (lobe2_theta + x_r).value / 180, (lobe2_phi + y_r).value / 180)
-                    if pix_tmp not in pix:
-                        pix.append(pix_tmp.tolist())
-                        sb.append(PS_flux_list[i].tolist())
-                    else:
-                        sb[pix.index(pix_tmp.tolist())] += PS_flux_list[i].tolist()
+                    pix_vec[pix_tmp] += PS_lobe[i]
         # Core
-        pix_tmp = hp.ang2pix(nside, theta.value / 180, phi.value / 180)
-        if pix_tmp not in pix:
-            pix.append(pix_tmp.tolist())
-            sb.append(PS_flux_list[i].tolist())
-        else:
-            sb[pix.index(pix_tmp.tolist())] += PS_flux_list[i].tolist()
-    # gen the pix_brightness matrix
-    pix_brightness = np.column_stack((np.array(pix), np.array(sb)))
+        pix_tmp = hp.ang2pix(nside, PS_data['Theta (deg)']/ 180, PS_data['Phi (deg)'] / 180)
+        PS_core = PS_flux_list[:,0]
+        pix_vec[pix_tmp] += PS_core
 
-    return pix_brightness
+    return pix_vec
 
 
 def draw_ps(nside, Freq, FileName, FoldName='PS_tables'):
@@ -397,20 +382,17 @@ def draw_ps(nside, Freq, FileName, FoldName='PS_tables'):
     """
 
     # Init
-    pix_vec = np.zeros(1, 12 * nside**nside)
+    pix_vec = np.zeros((12 * nside**2,))
     # load csv
     ClassType, PS_data = read_csv(FileName, FoldName)
 
     # get sparsed matrix
     if ClassType == 1 or ClassType == 2:
-        pix_brightness = draw_cir(nside, PS_data, ClassType, Freq)
+        pix_vec = draw_cir(nside, PS_data, ClassType, Freq)
     elif ClassType == 3:
-        pix_brightness = draw_rq(nside, PS_data, Freq)
+        pix_vec = draw_rq(nside, PS_data, Freq)
     else:
-        pix_brightness = draw_lobe(nside, PS_data, ClassType, Freq)
-
-    # sparse to full
-    pix_vec = sparse2full(nside, pix_brightness)
+        pix_vec = draw_lobe(nside, PS_data, ClassType, Freq)
 
     return pix_vec
 
@@ -440,3 +422,65 @@ def sparse2full(nside, sparse_mat):
     else:
         pix_vec[sparse_mat[:, 0].tolist()] += sparse_mat[:, 1].tolist()
         return pix_vec
+
+def main(argv):
+    """
+    A main function for use this module at the command window
+
+    parameters
+    ---------
+    argv: a string array
+    argv[0] module name
+    argv[1:] some parameters and filenames
+
+    example
+    -------
+    psDraw_new -i PS_tables/SF_100_20161009_205700.csv -o PS_tables/SF_nside_512.fits
+    -n 512 -f 150
+    """
+    try:
+        opts,args = getopt.getopt(argv,"hi:o:n:f:",["infile=","outfile=","nside","freq"])
+    except getopt.GetoptError:
+        print("pyDraw -i <PS name (csv)> -o <Outpur fits name> -n <nside> -f <frequency>")
+        sys.exit(2)
+    for opt,arg in opts:
+        if opt == '-h':
+            print("pyDraw -i <PS name (csv)> -o <Outpur fits name> -n <nside> -f <frequency>")
+        elif opt in ("-i","--infile"):
+            ps_name = arg
+        elif opt in ("-o","--outfile"):
+            fits_name = arg
+        elif opt in ("-n","--nside"):
+            nside = int(arg)
+        elif opt in ("-f","--freq"):
+            freq = float(arg)
+    # Split to get folder name and file name
+    Str_split = ps_name.split('/')
+    if len(Str_split) == 1:
+        FileName = Str_split
+        FoldName = "./"
+    else:
+        FileName = Str_split[-1]
+        FoldName = ''
+        for i in range(len(Str_split)-1):
+            FoldName = FoldName + Str_split[i]
+    # print
+    print("FoldName: ",FoldName)
+    print("FileName: ",FileName)
+    print("nside: ",nside)
+    print("frequency: ",freq)
+    # get pix_vec
+    if 'nside' not in dir():
+        nside = 512
+    if 'freq' not in dir():
+        freq = 150
+    pix_vec = draw_ps(nside,freq,FileName,FoldName)
+    # save
+    if 'fits_name' in dir():
+        write_fits_healpix(fits_name,pix_vec)
+    else:
+        fits_name = FoldName + '/PS_nside_' + str(nside) +'_'+str(freq)+ '.fits'
+        write_fits_healpix(fits_name,pix_vec)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
