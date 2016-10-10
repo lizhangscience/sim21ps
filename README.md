@@ -44,7 +44,7 @@ a module to fill the simulated PS with surface britness at provided frequency, a
 	```
 	- To generate the fits file
 	````sh
-	python3 ./psDraw_new.py -i <PS_catelogue(csv)> -o <Output fits> -n <nside> -f <frequency> 
+	python3 ./psDraw.py -i <PS_catelogue(csv)> -o <Output fits> -n <nside> -f <frequency> 
 	````
 
 ## Author
